@@ -1,0 +1,25 @@
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index 87a329f..c4af194 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -2554,6 +2554,20 @@ static bool ggml_thread_apply_affinity(bool * mask) {
+     return m != 0;
+ }
+ 
++// MinGW compat: newer SDK types may be missing in MinGW-w64 headers
++#if defined(__MINGW32__) && !defined(THREAD_POWER_THROTTLING_CURRENT_VERSION)
++typedef struct {
++    DWORD Version;
++    DWORD ControlMask;
++    DWORD StateMask;
++} THREAD_POWER_THROTTLING_STATE;
++#define THREAD_POWER_THROTTLING_CURRENT_VERSION 1
++#define THREAD_POWER_THROTTLING_EXECUTION_SPEED 0x00000001
++#ifndef ThreadPowerThrottling
++#define ThreadPowerThrottling ((THREAD_INFORMATION_CLASS)4)
++#endif
++#endif
++
+ static bool ggml_thread_apply_priority(int32_t prio) {
+     // Note that on Windows the Process Priority Class must be updated in order to set Thread priority.
+     // This is up to the applications.

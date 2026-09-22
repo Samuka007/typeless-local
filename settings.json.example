@@ -1,0 +1,15 @@
+{
+  "hotkey": "alt_r",
+  "trigger": "toggle",
+  "mode": "paste",
+  "polish": true,
+  "style": "default",
+  "indicator": true,
+  "custom_prompt": "",
+  "whisper_model": "models/ggml-large-v3-turbo.bin",
+  "whisper_language": "auto",
+  "whisper_prompt": "",
+  "llm_base_url": "https://api.deepseek.com/v1",
+  "llm_model": "deepseek-chat",
+  "llm_api_key": ""
+}

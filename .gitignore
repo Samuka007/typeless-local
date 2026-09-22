@@ -1,0 +1,33 @@
+# --- secrets / machine-local config ---
+# settings.json is created at first run and may contain your LLM API key
+.env
+settings.json
+*.local
+
+# --- models (multi-GB, fetched by scripts/setup.ps1) ---
+models/
+!models/.gitkeep
+
+# --- binaries / build outputs (built by scripts/build-vulkan.ps1) ---
+build/
+bin/
+*.dll
+*.exe
+
+# --- python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- runtime artifacts ---
+logs/
+*.log
+models/.probe.wav
+e2e*.json
+
+# --- editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

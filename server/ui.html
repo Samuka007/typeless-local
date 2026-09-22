@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>typeless-local 控制台</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--bd:#262b36;--fg:#e6e9ef;--mut:#8b93a3;--acc:#4f8cff;--rec:#ff4d5e;--ok:#3ecf8e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI",system-ui,sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:24px 16px 48px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+  .card h2{font-size:13px;margin:0 0 14px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--bd)}
+  .row:first-of-type{border-top:none}
+  .lbl b{display:block;font-weight:600}
+  .lbl span{color:var(--mut);font-size:12px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px;background:#555;vertical-align:middle}
+  .dot.ok{background:var(--ok)}.dot.bad{background:var(--rec)}
+  #recdot{width:14px;height:14px;border-radius:50%;background:#3a3f4b;display:inline-block;vertical-align:middle;margin-right:8px}
+  #recdot.on{background:var(--rec);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  input[type=text],select{background:#0c0e12;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:6px 10px;font:inherit;outline:none}
+  input[type=text]:focus{border-color:var(--acc)}
+  .seg{display:inline-flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+  .seg button{background:transparent;color:var(--mut);border:none;padding:6px 14px;cursor:pointer;font:inherit}
+  .seg button.on{background:var(--acc);color:#fff}
+  .switch{position:relative;width:40px;height:22px;flex:none}
+  .switch input{opacity:0;width:0;height:0}
+  .sl{position:absolute;inset:0;background:#3a3f4b;border-radius:22px;cursor:pointer;transition:.15s}
+  .sl:before{content:"";position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.15s}
+  .switch input:checked+.sl{background:var(--ok)}
+  .switch input:checked+.sl:before{transform:translateX(18px)}
+  #save{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:8px 22px;font:inherit;cursor:pointer;margin-top:12px}
+  #save:disabled{opacity:.5;cursor:default}
+  #toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ok);color:#04140c;padding:8px 18px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:.25s}
+  #toast.show{opacity:1}
+  .hist{padding:10px 0;border-top:1px solid var(--bd);cursor:pointer}
+  .hist:first-of-type{border-top:none}
+  .hist .t{color:var(--mut);font-size:12px;margin-bottom:2px}
+  .hist .raw{color:var(--mut);font-size:12px;margin-top:2px}
+  .empty{color:var(--mut);text-align:center;padding:16px 0}
+  .hint{color:var(--mut);font-size:12px;margin-top:10px}
+  .btn2{background:#2a3040;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:6px 14px;font:inherit;cursor:pointer}
+  .btn2:disabled{opacity:.5;cursor:default}
+  .ok{color:var(--ok)}.err{color:var(--rec)}
+  textarea{width:100%;background:#0c0e12;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px 10px;font:inherit;resize:vertical;outline:none}
+  textarea:focus{border-color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span id="recdot" title="录制状态"></span>typeless-local 控制台</h1>
+  <div class="sub">
+    ASR <span class="dot" id="d-asr"></span>
+    LLM <span class="dot" id="d-llm"></span>
+    &nbsp;·&nbsp; 服务:<code>http://127.0.0.1:8765</code>
+    &nbsp;·&nbsp; <span id="state">空闲</span>
+  </div>
+
+  <div class="card">
+    <h2>AI 润色</h2>
+    <div class="row">
+      <div class="lbl"><b>启用润色</b><span>关闭后直接输出 whisper 原文</span></div>
+      <label class="switch"><input type="checkbox" id="polish"><span class="sl"></span></label>
+    </div>
+    <div class="row">
+      <div class="lbl"><b>风格</b><span>同一句话按场景输出不同正式度</span></div>
+      <select id="style">
+        <option value="default">默认 · 清理口语</option>
+        <option value="email">邮件 · 完整书面</option>
+        <option value="chat">聊天 · 简短自然</option>
+        <option value="notes">笔记 · 要点条列</option>
+      </select>
+    </div>
+    <div class="row" style="display:block">
+      <div class="lbl" style="margin-bottom:6px"><b>自定义提示词</b><span>附加给 LLM 的额外规则,优先级高于内置风格。例:专有名词纠正 / 固定称谓 / 术语表…</span></div>
+      <textarea id="custom_prompt" rows="4" placeholder="例:遇到「夸克」时写成 Quark;输出保留我的口头禅;数字用阿拉伯数字…"></textarea>
+    </div>
+    <button id="save">保存设置</button>
+    <div class="hint">LLM 与 Whisper 的模型 / Key 配置在下方卡片;端口等部署配置仍在 .env。</div>
+  </div>
+
+  <div class="card">
+    <h2>LLM API(OpenAI 兼容)</h2>
+    <div class="row">
+      <div class="lbl"><b>Base URL</b><span>DeepSeek / Qwen / GLM 等兼容端点</span></div>
+      <input type="text" id="llm_base_url" style="width:300px">
+    </div>
+    <div class="row">
+      <div class="lbl"><b>模型</b><span>如 deepseek-flash / deepseek-chat / qwen-turbo</span></div>
+      <input type="text" id="llm_model" style="width:220px">
+    </div>
+    <div class="row">
+      <div class="lbl"><b>API Key</b><span>保存在本机 settings.json,不回显明文</span></div>
+      <input type="password" id="llm_api_key" style="width:280px" placeholder="sk-...">
+    </div>
+    <div class="row" style="border-top:none;padding-top:0">
+      <span id="llm_result" style="font-size:13px"></span>
+      <button id="llmtest" class="btn2">测试连接</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Whisper 引擎(Vulkan GPU)</h2>
+    <div class="row">
+      <div class="lbl"><b>模型</b><span>models/ 目录下的 ggml 模型;换模型需点击右侧应用</span></div>
+      <select id="whisper_model" style="width:300px"></select>
+    </div>
+    <div class="row">
+      <div class="lbl"><b>语言</b><span>auto 每次多花 ~1.3s 检测;固定 zh/en 更快</span></div>
+      <div class="seg" id="whisper_language">
+        <button data-v="auto">自动</button><button data-v="zh">中文</button><button data-v="en">英文</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="lbl"><b>Whisper 提示词</b><span>引导识别的 hotword/标点提示(可留空)</span></div>
+      <input type="text" id="whisper_prompt" style="width:280px">
+    </div>
+    <div class="row" style="border-top:none;padding-top:0">
+      <span id="wr_result" style="font-size:13px"></span>
+      <button id="wrestart" class="btn2">应用新模型(重启引擎)</button>
+    </div>
+    <div class="hint">换模型会重启 whisper-server 并重载入显存:turbo 冷启动约 30s(缓存热),期间听写会等待。</div>
+  </div>
+
+  <div class="card">
+    <h2>交互设置(保存后客户端即时生效)</h2>
+    <div class="row">
+      <div class="lbl"><b>热键</b><span>pynput 键名:alt_l / f9 / scroll_lock / pause…(右 Alt 填 alt_r,自动映射 AltGr)</span></div>
+      <input type="text" id="hotkey" style="width:120px">
+    </div>
+    <div class="row">
+      <div class="lbl"><b>触发方式</b><span>toggle:单击开始、再击结束(Typeless 式);hold:按住说话</span></div>
+      <div class="seg" id="trigger">
+        <button data-v="toggle">单击切换</button><button data-v="hold">按住说话</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="lbl"><b>输出方式</b><span>paste:模拟 Ctrl+V 粘贴(快);type:逐字键入(兼容)</span></div>
+      <div class="seg" id="mode">
+        <button data-v="paste">粘贴</button><button data-v="type">键入</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="lbl"><b>录音指示器</b><span>录音时屏幕底部居中悬浮 ● REC 计时提示</span></div>
+      <label class="switch"><input type="checkbox" id="indicator"><span class="sl"></span></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>最近听写(点击复制润色结果)</h2>
+    <div id="hist"><div class="empty">还没有记录——按热键说一句话试试</div></div>
+  </div>
+</div>
+<div id="toast">已保存,客户端即时生效</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let cur = null, dirty = false, models = [];
+
+function seg(id, v){
+  [...$(id).children].forEach(b => b.classList.toggle("on", b.dataset.v === v));
+}
+function fill(s){
+  if (dirty) return;               // don't clobber unsaved edits
+  cur = s;
+  $("hotkey").value = s.hotkey;
+  seg("trigger", s.trigger); seg("mode", s.mode);
+  $("polish").checked = s.polish; $("indicator").checked = s.indicator;
+  $("custom_prompt").value = s.custom_prompt || "";
+  $("llm_base_url").value = s.llm_base_url; $("llm_model").value = s.llm_model;
+  if (document.activeElement !== $("llm_api_key")) $("llm_api_key").value = s.llm_api_key || "";
+  $("whisper_prompt").value = s.whisper_prompt || "";
+  seg("whisper_language", s.whisper_language);
+  const sel = $("whisper_model");
+  const opts = (models.includes(s.whisper_model) ? models : [s.whisper_model, ...models]);
+  if (sel.dataset.v !== opts.join("|")) {
+    sel.dataset.v = opts.join("|");
+    sel.innerHTML = opts.map(m => `<option value="${m}">${m.replace("models/","")}</option>`).join("");
+  }
+  sel.value = s.whisper_model;
+}
+async function poll(){
+  try{
+    const st = await (await fetch("/status")).json();
+    $("d-asr").className = "dot " + (st.asr ? "ok" : "bad");
+    $("d-llm").className = "dot " + (st.llm ? "ok" : "bad");
+    $("recdot").className = st.recording ? "on" : "";
+    $("state").textContent = st.recording ? "● 正在录音" : "空闲";
+    fill(st.settings);
+    if (!models.length){
+      models = (await (await fetch("/whisper/models")).json()).models;
+      fill(st.settings);
+    }
+    if (st.recording) return;
+    const h = await (await fetch("/history")).json();
+    $("hist").innerHTML = h.items.length ? h.items.map(i => `
+      <div class="hist" onclick="navigator.clipboard.writeText(this.dataset.p)">
+        <div class="t">${i.ts} · ${i.style} · ${i.dur}s</div>
+        <div>${esc(i.polished)}</div>
+        <div class="raw">原文:${esc(i.raw)}</div>
+      </div>`).join("") : $("hist").innerHTML;
+  }catch(e){ $("d-asr").className = "dot bad"; $("state").textContent = "服务未连接"; }
+}
+function esc(s){ const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; }
+
+$("trigger").onclick = e => { if(e.target.dataset.v){ seg("trigger",e.target.dataset.v); dirty=true; } };
+$("mode").onclick    = e => { if(e.target.dataset.v){ seg("mode",e.target.dataset.v); dirty=true; } };
+$("whisper_language").onclick = e => { if(e.target.dataset.v){ seg("whisper_language",e.target.dataset.v); dirty=true; } };
+for (const id of ["hotkey","polish","indicator","style","custom_prompt","llm_base_url","llm_model","llm_api_key","whisper_model","whisper_prompt"])
+  $(id).oninput = () => dirty = true;
+
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  try{
+    const body = {
+      hotkey: $("hotkey").value.trim(),
+      trigger: document.querySelector("#trigger .on")?.dataset.v,
+      mode: document.querySelector("#mode .on")?.dataset.v,
+      polish: $("polish").checked,
+      indicator: $("indicator").checked,
+      style: $("style").value,
+      custom_prompt: $("custom_prompt").value,
+      llm_base_url: $("llm_base_url").value.trim(),
+      llm_model: $("llm_model").value.trim(),
+      llm_api_key: $("llm_api_key").value,
+      whisper_model: $("whisper_model").value,
+      whisper_language: document.querySelector("#whisper_language .on")?.dataset.v,
+      whisper_prompt: $("whisper_prompt").value,
+    };
+    const s = await (await fetch("/settings", {method:"PATCH",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})).json();
+    dirty = false; fill(s);
+    const t = $("toast"); t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800);
+  } finally { $("save").disabled = false; }
+};
+
+$("llmtest").onclick = async () => {
+  $("llmtest").disabled = true;
+  const r = $("llm_result"); r.textContent = "测试中…"; r.className = "";
+  try{
+    const d = await (await fetch("/llm/test", {method:"POST"})).json();
+    r.textContent = d.ok ? `✓ 连接正常(${d.ms}ms)` : `✗ ${d.error}`;
+    r.className = d.ok ? "ok" : "err";
+  }catch(e){ r.textContent = "✗ 请求失败:" + e; r.className = "err"; }
+  finally{ $("llmtest").disabled = false; }
+};
+$("wrestart").onclick = async () => {
+  if (dirty){ alert("请先保存设置,再应用新模型"); return; }
+  $("wrestart").disabled = true;
+  const r = $("wr_result"); r.textContent = "重启中(冷启动最长数分钟)…"; r.className = "";
+  try{
+    const d = await (await fetch("/whisper/restart", {method:"POST"})).json();
+    r.textContent = d.ok ? `✓ 引擎已就绪(${(d.ms/1000).toFixed(1)}s)` : `✗ ${d.error}`;
+    r.className = d.ok ? "ok" : "err";
+  }catch(e){ r.textContent = "✗ 请求失败:" + e; r.className = "err"; }
+  finally{ $("wrestart").disabled = false; }
+};
+
+poll(); setInterval(poll, 2000);
+</script>
+</body>
+</html>
