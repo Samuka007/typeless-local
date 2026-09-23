@@ -145,6 +145,60 @@ async def rephrase(text: str, timeout: float = 6.0, style: str = "default",
         return raw
 
 
+MEETING_PROMPT = (
+    "You are a meeting-transcript editor. Below is a raw transcript with "
+    "[time speaker] tags, possibly with speech-recognition errors, missing "
+    "punctuation and repeated words. Rewrite it as a clean verbatim "
+    "transcript: keep every speaker turn and its [HH:MM:SS speaker] tag; "
+    "merge turns from the same speaker; add punctuation; fix obvious "
+    "recognition errors from context; remove filler repetitions but keep "
+    "all meaning, numbers and decisions. Do NOT summarize, shorten or "
+    "translate. Output plain text only."
+)
+
+
+async def meeting_polish(text: str, timeout: float = 120.0) -> str:
+    """Optional AI cleanup of a finished meeting transcript (verbatim, not a summary)."""
+    raw = text.strip()
+    if not raw:
+        return raw
+    s = settings.get()
+    payload = {
+        "model": s["llm_model"],
+        "messages": [
+            {"role": "system", "content": MEETING_PROMPT},
+            {"role": "user", "content": raw},
+        ],
+        "temperature": 0.1,
+        # Long transcripts need a big budget AND (if the provider is a
+        # reasoning model) room for the thinking chain; user's llm_reasoning
+        # knob governs it just like dictation polish.
+        **_completion_kwargs(s),
+    }
+    try:
+        try:
+            resp = await asyncio.wait_for(
+                _get_client(s).post("/chat/completions", json=payload),
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            if e.response is None or e.response.status_code != 400:
+                raise
+            vanilla = {k: v for k, v in payload.items()
+                       if k not in ("reasoning_effort",)}
+            resp = await asyncio.wait_for(
+                _get_client(s).post("/chat/completions", json=vanilla),
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+        out = resp.json()["choices"][0]["message"]["content"].strip()
+        return out or raw
+    except Exception as e:  # noqa: BLE001 - a failed polish never loses data
+        print(f"[rephrase] meeting polish failed ({type(e).__name__}: {e}); keeping raw")
+        return raw
+
+
 async def test_connection() -> dict:
     """WebUI 'Test connection': try a tiny completion, report verdict + latency."""
     import time as _t

@@ -75,6 +75,7 @@ uv run typeless-dictate --raw         # 跳过 LLM 润色,只出原始转写
 - **LLM API**:Base URL / 模型名 / API Key 全部页内可改,带**测试连接**按钮;保存后 LLM 客户端热重建,无需重启服务。另有**输出预算(max_tokens)**与**思考模式**两个进阶旋钮:推理模型(deepseek-flash 等)会先把预算花在思考链上,预算太小会让长句只思考不出文(表现为无标点原文直出);思考模式默认关闭(润色最快),设为「模型默认」可让模型先思考再润色
 - **Whisper 引擎**:模型下拉(自动列出 models/ 下全部)、语言(auto/zh/en)、whisper 提示词;换模型后点**应用新模型**重启引擎(缓存热时约 3~30s)
 - **最近听写**:最近 100 条(展示 50)历史,点击即复制润色结果
+- **会议逐字稿**:见下节「会议转写模式」
 
 配置优先级:**settings.json 是唯一真相源**。首次运行时从 `.env` 播种,旧版 settings.json 会自动迁移缺失的 LLM/whisper 字段;之后 WebUI 改动全部写入 settings.json(`.env` 不再生效,删除 settings.json 即可回退到 .env)。端口等真正的部署常量仍留在 `.env`。
 
@@ -108,7 +109,23 @@ uv run typeless-dictate --raw         # 跳过 LLM 润色,只出原始转写
 - LLM 换低延迟供应商（Qwen-turbo / SiliconFlow），或改 `rephrase.py` 为流式 + 边收边打
 - 纯本地 LLM（12GB 显存可跑 Qwen3-4B/8B 量化，用 llama.cpp Vulkan 版），完全离线但延迟更高
 
-## 六、进阶方向
+## 六、会议转写模式（WebUI 内置）
+
+WebUI 的「会议逐字稿」卡提供**通用会议转录**：同时收听桌面音频与麦克风，逐段实时转写。
+
+- **说话人归属零模型成本**：桌面音频（会议远端）＝`[对方]`，麦克风（你自己）＝`[我]`——声道即说话人，不需要 diarization（whisper.cpp 的 tinydiarize 仅支持 small.en-tdrz 模型，中文不可用；多个远端发言人会统一标为「对方」，此为已知局限）
+- **采集实现**：桌面音频走 `soundcard` 的 WASAPI loopback，麦克风走 `sounddevice`（PortAudio）；采集在 server 进程内，关浏览器页面不影响录制
+- **分段**：每声道独立的自适应能量 VAD（噪声底自动跟随环境），说话停顿 ~0.8s 切段；whisper-server 自带 VAD 兜底过滤静音
+- **串音去重**：耳机漏音会让对方声音串进麦克风，6 秒内另一通道出现近乎相同文本时自动丢弃重复（状态里有 `bleed_dropped` 计数）——**最稳妥还是把耳机戴在头上**
+- **停止后**：逐字稿自动存 `logs/transcripts/meeting-*.md`，WebUI 可复制 / 下载 / 点「AI 整理」生成书面化版本（逐字保留发言与标签，不做摘要；原始逐字稿永远保留）
+
+```powershell
+# 开始/停止也可以用 API 驱动（例如配合快捷键工具）:
+curl -X POST http://127.0.0.1:8765/meeting/start
+curl -X POST http://127.0.0.1:8765/meeting/stop
+```
+
+## 七、进阶方向
 
 1. **流式听写**：换 sherpa-onnx 流式 zipformer，边说边出字，热键只管开始/结束
 2. **斜杠命令**：在 dictation 里说 "new line" / "中文模式" 等指令映射为动作
@@ -117,7 +134,7 @@ uv run typeless-dictate --raw         # 跳过 LLM 润色,只出原始转写
 5. **多 profile**：邮件风格 / 代码注释 / 聊天风格，不同 system prompt 一键切换
 6. **本地 LLM 路线**：llama.cpp Vulkan 版跑 Qwen3-8B-Q4，实现 100% 离线（延迟 +2-4s）
 
-## 七、故障排查
+## 八、故障排查
 
 ### 生命周期契约（重要，一晚调试换来的教训）
 

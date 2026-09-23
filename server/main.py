@@ -25,7 +25,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import asr, rephrase, settings
+from . import asr, meeting, rephrase, settings
 from .config import DICTATE_ENGLISH_ONLY, SERVER_PORT, WHISPER_PROMPT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -211,6 +211,56 @@ async def llm_test():
 @app.get("/ui")
 async def ui():
     return FileResponse(Path(__file__).resolve().parent / "ui.html")
+
+
+# --- meeting transcription -------------------------------------------------
+
+@app.post("/meeting/start")
+async def meeting_start():
+    """Start capturing desktop audio (loopback) + microphone for transcription."""
+    return JSONResponse(meeting.start())
+
+
+@app.post("/meeting/stop")
+async def meeting_stop():
+    """Stop capture, flush pending segments, persist the transcript to logs/."""
+    return JSONResponse(meeting.stop())
+
+
+@app.get("/meeting/status")
+async def meeting_status():
+    m = meeting.get_session()
+    return JSONResponse(m.status() if m else {"active": False})
+
+
+@app.get("/meeting/live")
+async def meeting_live(after: int = 0):
+    """Incremental live transcript feed: entries with index > `after`."""
+    m = meeting.get_session()
+    if m is None:
+        return JSONResponse({"active": False, "entries": [], "total": 0})
+    return JSONResponse(m.live(after=after))
+
+
+@app.get("/meeting/transcript")
+async def meeting_transcript():
+    m = meeting.get_session()
+    if m is None:
+        raise HTTPException(404, "no meeting session (already stopped and persisted)")
+    return JSONResponse({"text": m.plain_text(), **m.status()})
+
+
+class MeetingPolishIn(BaseModel):
+    text: str
+
+
+@app.post("/meeting/polish")
+async def meeting_polish(body: MeetingPolishIn):
+    """Optional AI cleanup of a finished transcript (formatting, ASR fixes)."""
+    out = await rephrase.meeting_polish(body.text)
+    if m := meeting.get_session():
+        m.polished = out
+    return JSONResponse({"text": out})
 
 
 def main() -> None:

@@ -47,6 +47,10 @@
   .ok{color:var(--ok)}.err{color:var(--rec)}
   textarea{width:100%;background:#0c0e12;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px 10px;font:inherit;resize:vertical;outline:none}
   textarea:focus{border-color:var(--acc)}
+  pre#mt_live{display:none;background:#0c0e12;border:1px solid var(--bd);border-radius:8px;padding:10px;max-height:320px;overflow-y:auto;font:12px/1.7 Consolas,monospace;white-space:pre-wrap;margin:10px 0}
+  .mt-e{padding:1px 0}
+  .mt-t{color:var(--mut)}
+  .mt-me{color:#8ab4ff}
 </style>
 </head>
 <body>
@@ -157,6 +161,29 @@
       <div class="lbl"><b>录音指示器</b><span>录音时屏幕底部居中悬浮 ● REC 计时提示</span></div>
       <label class="switch"><input type="checkbox" id="indicator"><span class="sl"></span></label>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>会议逐字稿<span style="float:right;font-size:12px;color:var(--mut);font-weight:400" id="mt_state">未开始</span></h2>
+    <div class="row" style="border-top:none;padding-top:0">
+      <div class="lbl"><b>双路收听</b><span>桌面音频=「对方」,麦克风=「我」;开会请戴耳机,避免对方声音串进麦克风</span></div>
+      <div>
+        <button id="mt_start" class="btn2">● 开始收听</button>
+        <button id="mt_stop" class="btn2" disabled>■ 停止</button>
+      </div>
+    </div>
+    <pre id="mt_live"></pre>
+    <div id="mt_done" style="display:none">
+      <div class="row" style="border-top:none;padding-top:0">
+        <span id="mt_saved" style="font-size:13px"></span>
+        <div>
+          <button id="mt_copy" class="btn2">复制全文</button>
+          <button id="mt_dl" class="btn2">下载 .md</button>
+          <button id="mt_ai" class="btn2">AI 整理</button>
+        </div>
+      </div>
+    </div>
+    <div class="hint">逐字稿逐段实时转写,不做摘要;多个远端发言人会统一标为「对方」。</div>
   </div>
 
   <div class="card">
@@ -274,6 +301,84 @@ $("wrestart").onclick = async () => {
 };
 
 poll(); setInterval(poll, 2000);
+
+// --- meeting transcript ---
+let mtAfter = 0, mtActive = false;
+function mtRender(entries){
+  const box = $("mt_live");
+  for (const e of entries){
+    const d = document.createElement("div");
+    d.className = "mt-e " + (e.who === "我" ? "mt-me" : "");
+    d.innerHTML = `<span class="mt-t">${e.t}</span> [${e.who}] ${esc(e.text)}`;
+    box.appendChild(d);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+async function mtPoll(){
+  try{
+    const d = await (await fetch(`/meeting/live?after=${mtAfter}`)).json();
+    mtActive = !!d.active;
+    const st = $("mt_state");
+    if (d.active){
+      st.textContent = `● 收听中 ${d.elapsed}s · 我 ${d.counts?.mic||0} 段 / 对方 ${d.counts?.loop||0} 段`;
+      st.className = "err";
+    } else if (mtAfter > 0){
+      st.textContent = "已停止"; st.className = "";
+    } else { st.textContent = "未开始"; st.className = ""; }
+    $("mt_start").disabled = d.active; $("mt_stop").disabled = !d.active;
+    if (d.entries?.length){ mtRender(d.entries); mtAfter = d.total; }
+  }catch(e){ /* server busy with a transcription */ }
+}
+$("mt_start").onclick = async () => {
+  $("mt_start").disabled = true;
+  const d = await (await fetch("/meeting/start", {method:"POST"})).json();
+  if (!d.ok){ $("mt_state").textContent = d.error; $("mt_state").className = "err"; $("mt_start").disabled = false; return; }
+  mtAfter = 0; const box = $("mt_live"); box.innerHTML = ""; box.style.display = "block";
+  $("mt_done").style.display = "none"; $("mt_saved").textContent = "";
+  mtPoll();
+};
+$("mt_stop").onclick = async () => {
+  $("mt_stop").disabled = true;
+  const d = await (await fetch("/meeting/stop", {method:"POST"})).json();
+  mtPoll();
+  if (d.ok){
+    $("mt_done").style.display = "block";
+    $("mt_saved").textContent = d.path ? "已保存:" + d.path : (d.error || "");
+    try{
+      const t = await (await fetch("/meeting/transcript")).json();
+      const box = $("mt_live"); box.textContent = t.text; box.style.display = "block";
+    }catch(e){}
+  } else { $("mt_state").textContent = d.error; $("mt_state").className = "err"; $("mt_stop").disabled = false; }
+};
+$("mt_copy").onclick = async () => {
+  try{
+    const d = await (await fetch("/meeting/transcript")).json();
+    await navigator.clipboard.writeText(d.text);
+    $("mt_saved").textContent = "已复制到剪贴板";
+  }catch(e){ $("mt_saved").textContent = "复制失败:" + e; }
+};
+$("mt_dl").onclick = async () => {
+  try{
+    const d = await (await fetch("/meeting/transcript")).json();
+    const b = new Blob([d.text], {type:"text/markdown"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b); a.download = "meeting-" + (d.id||"transcript") + ".md";
+    a.click(); URL.revokeObjectURL(a.href);
+  }catch(e){ $("mt_saved").textContent = "下载失败:" + e; }
+};
+$("mt_ai").onclick = async () => {
+  const btn = $("mt_ai"); btn.disabled = true;
+  const old = btn.textContent; btn.textContent = "整理中…(长逐字稿需 1-2 分钟)";
+  try{
+    const d0 = await (await fetch("/meeting/transcript")).json();
+    const d = await (await fetch("/meeting/polish", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify({text: d0.text})})).json();
+    const box = $("mt_live"); box.textContent = d.text;
+    $("mt_saved").textContent = "AI 整理完成(原始逐字稿仍在 logs/transcripts/)";
+  }catch(e){ $("mt_saved").textContent = "整理失败:" + e; }
+  finally{ btn.disabled = false; btn.textContent = old; }
+};
+mtPoll(); setInterval(mtPoll, 1500);
 </script>
 </body>
 </html>
