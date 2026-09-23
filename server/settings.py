@@ -51,6 +51,13 @@ DEFAULTS: dict = {
     "llm_base_url": "https://api.deepseek.com/v1",
     "llm_model": "deepseek-chat",
     "llm_api_key": "",
+    # Completion budget. Reasoning models spend this on thinking FIRST -- too
+    # small a value means zero visible output (finish_reason=length, empty
+    # content) on longer dictations. 8192 covers thinking + long text.
+    "llm_max_tokens": 8192,
+    # Provider thinking knob: none -> reasoning_effort=none (fastest, no
+    # thinking chain; ideal for dictation polish), low, auto (model default).
+    "llm_reasoning": "none",
 }
 
 _lock = threading.Lock()
@@ -78,6 +85,15 @@ def _coerce(patch: dict) -> dict:
               "llm_model", "llm_api_key"):
         if k in patch:
             out[k] = str(patch[k] or "")
+    if "llm_max_tokens" in patch:
+        try:
+            out["llm_max_tokens"] = max(256, min(65536, int(patch["llm_max_tokens"])))
+        except (TypeError, ValueError):
+            pass
+    if "llm_reasoning" in patch:
+        out["llm_reasoning"] = (patch["llm_reasoning"]
+                                if patch["llm_reasoning"] in ("none", "low", "auto")
+                                else "none")
     if "whisper_model" in patch:
         m = str(patch["whisper_model"] or "").strip().replace("\\", "/")
         if m:

@@ -11,5 +11,7 @@
   "whisper_prompt": "",
   "llm_base_url": "https://api.deepseek.com/v1",
   "llm_model": "deepseek-chat",
-  "llm_api_key": ""
+  "llm_api_key": "",
+  "llm_max_tokens": 8192,
+  "llm_reasoning": "none"
 }

@@ -96,6 +96,16 @@
       <div class="lbl"><b>API Key</b><span>保存在本机 settings.json,不回显明文</span></div>
       <input type="password" id="llm_api_key" style="width:280px" placeholder="sk-...">
     </div>
+    <div class="row">
+      <div class="lbl"><b>输出预算(max_tokens)</b><span>推理模型的思考链先扣这里;太小时长句会无输出</span></div>
+      <input type="number" id="llm_max_tokens" style="width:110px" min="256" max="65536" step="256">
+    </div>
+    <div class="row">
+      <div class="lbl"><b>思考模式</b><span>关闭 = 润色最快;auto 保留模型默认(慢但可能更准)</span></div>
+      <div class="seg" id="llm_reasoning">
+        <button data-v="none">关闭(快)</button><button data-v="low">少量</button><button data-v="auto">模型默认</button>
+      </div>
+    </div>
     <div class="row" style="border-top:none;padding-top:0">
       <span id="llm_result" style="font-size:13px"></span>
       <button id="llmtest" class="btn2">测试连接</button>
@@ -172,6 +182,8 @@ function fill(s){
   $("custom_prompt").value = s.custom_prompt || "";
   $("llm_base_url").value = s.llm_base_url; $("llm_model").value = s.llm_model;
   if (document.activeElement !== $("llm_api_key")) $("llm_api_key").value = s.llm_api_key || "";
+  $("llm_max_tokens").value = s.llm_max_tokens ?? 8192;
+  seg("llm_reasoning", s.llm_reasoning || "none");
   $("whisper_prompt").value = s.whisper_prompt || "";
   seg("whisper_language", s.whisper_language);
   const sel = $("whisper_model");
@@ -209,7 +221,7 @@ function esc(s){ const d=document.createElement("div"); d.textContent=s??""; ret
 $("trigger").onclick = e => { if(e.target.dataset.v){ seg("trigger",e.target.dataset.v); dirty=true; } };
 $("mode").onclick    = e => { if(e.target.dataset.v){ seg("mode",e.target.dataset.v); dirty=true; } };
 $("whisper_language").onclick = e => { if(e.target.dataset.v){ seg("whisper_language",e.target.dataset.v); dirty=true; } };
-for (const id of ["hotkey","polish","indicator","style","custom_prompt","llm_base_url","llm_model","llm_api_key","whisper_model","whisper_prompt"])
+for (const id of ["hotkey","polish","indicator","style","custom_prompt","llm_base_url","llm_model","llm_api_key","llm_max_tokens","whisper_model","whisper_prompt"])
   $(id).oninput = () => dirty = true;
 
 $("save").onclick = async () => {
@@ -226,6 +238,8 @@ $("save").onclick = async () => {
       llm_base_url: $("llm_base_url").value.trim(),
       llm_model: $("llm_model").value.trim(),
       llm_api_key: $("llm_api_key").value,
+      llm_max_tokens: parseInt($("llm_max_tokens").value, 10) || undefined,
+      llm_reasoning: document.querySelector("#llm_reasoning .on")?.dataset.v,
       whisper_model: $("whisper_model").value,
       whisper_language: document.querySelector("#whisper_language .on")?.dataset.v,
       whisper_prompt: $("whisper_prompt").value,

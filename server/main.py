@@ -178,6 +178,8 @@ class SettingsPatch(BaseModel):
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
+    llm_max_tokens: int | None = None
+    llm_reasoning: str | None = None
 
 
 @app.patch("/settings")

@@ -17,7 +17,29 @@ _client_fp: tuple = ()
 
 
 def _fingerprint(s: dict) -> tuple:
-    return (s["llm_base_url"], s["llm_model"], s["llm_api_key"])
+    # Everything that shapes the request payload or connection; the shared
+    # client is rebuilt whenever any of these change in settings.json.
+    return (s["llm_base_url"], s["llm_model"], s["llm_api_key"],
+            s["llm_max_tokens"], s["llm_reasoning"])
+
+
+def _completion_kwargs(s: dict, *, small: bool = False) -> dict:
+    """Payload extras honoring the WebUI budget/thinking knobs.
+
+    Reasoning models (deepseek-flash etc.) spend max_tokens on the thinking
+    chain BEFORE the visible content, so an undersized budget yields
+    finish_reason=length with EMPTY content. We also drop the thinking chain
+    entirely by default (llm_reasoning=none -> reasoning_effort=none): polish
+    doesn't need it and it triples the latency. Not every provider accepts
+    reasoning_effort -- callers fall back without it on a 400.
+    """
+    kw: dict = {
+        "max_tokens": 128 if small else s["llm_max_tokens"],
+        "stream": False,
+    }
+    if s["llm_reasoning"] != "auto":
+        kw["reasoning_effort"] = s["llm_reasoning"]
+    return kw
 
 BASE_PROMPT = (
     "You are a voice-dictation post-processor. The user speaks casually; you "
@@ -87,24 +109,35 @@ async def rephrase(text: str, timeout: float = 6.0, style: str = "default",
         return raw
     s = settings.get()
     system = _system_prompt(style, custom_prompt or s["custom_prompt"])
+    payload = {
+        "model": s["llm_model"],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": raw},
+        ],
+        "temperature": 0.1,
+        **_completion_kwargs(s),
+    }
     try:
-        resp = await asyncio.wait_for(
-            _get_client(s).post(
-                "/chat/completions",
-                json={
-                    "model": s["llm_model"],
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": raw},
-                    ],
-                    "temperature": 0.1,
-                    "max_tokens": 1024,
-                    "stream": False,
-                },
-            ),
-            timeout=timeout,
-        )
-        resp.raise_for_status()
+        try:
+            resp = await asyncio.wait_for(
+                _get_client(s).post("/chat/completions", json=payload),
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            if e.response is None or e.response.status_code != 400:
+                raise
+            # Provider rejected an extra param (e.g. reasoning_effort): retry
+            # once with the plain vanilla payload.
+            print("[rephrase] 400 (param rejected); retrying vanilla payload")
+            vanilla = {k: v for k, v in payload.items()
+                       if k not in ("reasoning_effort",)}
+            resp = await asyncio.wait_for(
+                _get_client(s).post("/chat/completions", json=vanilla),
+                timeout=timeout,
+            )
+            resp.raise_for_status()
         out = resp.json()["choices"][0]["message"]["content"].strip()
         return out or raw
     except Exception as e:  # noqa: BLE001 - degrade gracefully, never lose text
@@ -127,8 +160,7 @@ async def test_connection() -> dict:
                 json={
                     "model": s["llm_model"],
                     "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
-                    "stream": False,
+                    **_completion_kwargs(s, small=True),
                 },
             ),
             timeout=15.0,
